@@ -8,11 +8,22 @@ The local machine has ssh access to the remote machine.
 
 ### Usage
 
-Assuming existing file system on remote machine, establish a local copy:
+The first time zfs-snapshot-sync is executd it will bring across the oldest snapshot.
 
-`ssh remote_host 'zfs send remote-tank/stuff' | zfs receive local-tank/stuff`
+```
+<remote>@snapshot-1  ->  <local>@snapshot-1
+<remote>@snapshot-2
+```
 
-Then run zfs-snapshot-sync to periodically bring across any snapshots
+On the next execution it will incrementally bring across the remaining snapsjots including any new ones:
+
+```
+<remote>@snapshot-1  ->  <local>@snapshot-1
+<remote>@snapshot-2  ->  <local>@snapshot-1
+<remote>@snapshot-2  ->  <local>@snapshot-1
+```
+
+Hence all you have to do is run zfs-snapshot-sync from time to time.
 
 `ruby zfs-snapshot-sync <remote-host> <remote-fs> <local-fs>`
 

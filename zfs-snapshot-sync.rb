@@ -1,5 +1,6 @@
-#!ruby
+#!/usr/bin/ruby
 require 'set'
+require 'open3'
 
 REMOTE_HOST = ARGV[0]
 REMOTE_FS = ARGV[1]
@@ -22,32 +23,41 @@ def zfs_list_snapshots_cmd(fs)
 end
 
 def list_snapshots(list_cmd, host)
-  puts list_cmd
   `#{list_cmd}`.lines.map do |line|
     line.sub("#{host}@", '').strip
   end
 end
 
+_, _, status = Open3.capture3("zfs list #{LOCAL_FS}")
+local_fs_exists = status == 0
+
 remote_snapshots_cmd = ssh_cmd(zfs_list_snapshots_cmd(REMOTE_FS))
 remote_list = list_snapshots(remote_snapshots_cmd, REMOTE_FS)
-
-local_list = list_snapshots(zfs_list_snapshots_cmd(LOCAL_FS), LOCAL_FS)
-
-common_list = remote_list.to_set.intersection(local_list.to_set).to_a
-
-ancestor = common_list.sort_by { |entry| remote_list.index(entry) }.last
+oldest = remote_list.first
 most_recent = remote_list.last
+
+
+if local_fs_exists
+  local_list = list_snapshots(zfs_list_snapshots_cmd(LOCAL_FS), LOCAL_FS)
+  common_list = remote_list.to_set.intersection(local_list.to_set).to_a
+  ancestor = common_list.sort_by { |entry| remote_list.index(entry) }.last
+  
+  zfs_send_arguments = "-I '#{REMOTE_FS}@#{ancestor}' '#{REMOTE_FS}@#{most_recent}'"
+  zfs_receive_arguments = "-F -u #{LOCAL_FS}"
+else
+  zfs_send_arguments = "#{REMOTE_FS}@#{oldest}"
+  zfs_receive_arguments = "#{LOCAL_FS}@#{oldest}"
+end
 
 if VERBOSE
   puts "Ancestor snapshot: #{ancestor}"
   puts "Most recent snapshot: #{most_recent}"
 end
 
+zfs_send = ssh_cmd("zfs send #{zfs_send_arguments}")
+zfs_receive = "zfs receive #{zfs_receive_arguments}"
+
 if ancestor != most_recent
-
-  zfs_send = ssh_cmd("zfs send -I '#{REMOTE_FS}@#{ancestor}' '#{REMOTE_FS}@#{most_recent}'")
-  zfs_receive = "zfs receive -F -u #{LOCAL_FS}"
-
   `#{zfs_send} | #{zfs_receive}`
 end
 
